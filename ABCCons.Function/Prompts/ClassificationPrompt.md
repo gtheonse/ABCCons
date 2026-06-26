@@ -6,4 +6,7 @@ Analyze the USER MESSAGE and classify it into one of the following intents:
 
 Respond with ONLY 'QA' or 'Feedback'. No additional text, punctuation, or formatting.
 
-USER MESSAGE: {{$input}}
+USER MESSAGE:
+<user_input>
+{{$input}}
+</user_input>

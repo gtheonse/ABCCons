@@ -42,9 +42,9 @@ sequenceDiagram
         Orch->>LLM: Execute Q&A System Prompt + History + Message
         activate LLM
         Note over LLM: LLM decides to call tool
-        LLM->>DS: GetProductAttribute(designation, attribute)
-        DS-->>LLM: returns Value (e.g. "15 mm")
-        Note over LLM: LLM compiles concise, grounded answer
+        LLM->>DS: GetProductDatasheet(designation, attributeName)
+        DS-->>LLM: returns raw JSON datasheet string
+        Note over LLM: LLM parses JSON & extracts attribute value
         LLM-->>Orch: returns "The width of the 6205 bearing is 15 mm."
         deactivate LLM
     else is Feedback Intent
@@ -75,8 +75,8 @@ sequenceDiagram
 | **HTTP Trigger** | Handles low-level HTTP protocols, body extraction, request model binding, schema validations, and global exception boundaries. | Scoped | [AssistantFunction](file:///c:/Users/gonzalo_t/source/prepo/ABCCons/ABCCons.Function/AssistantFunction.cs) |
 | **Orchestrator** | Classifies incoming message intents and creates specialized, tool-isolated LLM agent kernels to execute the routed request. | Scoped | [AssistantOrchestrator](file:///c:/Users/gonzalo_t/source/prepo/ABCCons/ABCCons.Function/Orchestration/AssistantOrchestrator.cs) |
 | **Session Context** | Shares the active request's state dynamically across decoupled boundary handlers, controllers, and plugins. | Scoped | [SessionContext](file:///c:/Users/gonzalo_t/source/prepo/ABCCons/ABCCons.Function/Services/SessionContext.cs) |
-| **Authoritative Reader** | Performs high-performance, case-insensitive, symbol-matching parses of local JSON files, maintaining a memory cache of datasheets. | Singleton | [DatasheetService](file:///c:/Users/gonzalo_t/source/prepo/ABCCons/ABCCons.Function/Services/DatasheetService.cs) |
-| **Q&A Tooling** | Exposes C# lookup functions to the Semantic Kernel agent and captures matched query parameters into the session context. | Transient | [DatasheetPlugin](file:///c:/Users/gonzalo_t/source/prepo/ABCCons/ABCCons.Function/Plugins/DatasheetPlugin.cs) |
+| **Authoritative Reader** | Performs raw JSON loading of local bearing datasheets and caches them in memory. | Singleton | [DatasheetService](file:///c:/Users/gonzalo_t/source/prepo/ABCCons/ABCCons.Function/Services/DatasheetService.cs) |
+| **Q&A Tooling** | Exposes `GetProductDatasheet` to the Semantic Kernel agent to return the raw JSON datasheet, delegating matching and synonyms to the LLM (Option A). | Transient | [DatasheetPlugin](file:///c:/Users/gonzalo_t/source/prepo/ABCCons/ABCCons.Function/Plugins/DatasheetPlugin.cs) |
 | **Feedback Tooling** | Exposes feedback logging interfaces to the Feedback agent, resolving missing data points using the shared context. | Transient | [FeedbackPlugin](file:///c:/Users/gonzalo_t/source/prepo/ABCCons/ABCCons.Function/Plugins/FeedbackPlugin.cs) |
 | **State Store** | Contracts for saving session history and logs across requests, featuring memory and Redis adapters. | Singleton | [IStateStore](file:///c:/Users/gonzalo_t/source/prepo/ABCCons/ABCCons.Function/Services/IStateStore.cs) |
 
@@ -108,9 +108,9 @@ To prevent Azure OpenAI from fabricating values ("hallucinating") when queries f
 1. **Tool-Isolated Kernels (Context Sanitization)**:
    The orchestrator clones the primary `Kernel` and registers *only* the specific tool required for that agent's scope. The Q&A agent cannot call feedback commands, and the Feedback agent cannot trigger data queries. This locks the prompt scope and prevents tool-crossover hallucination.
 2. **Grounded-Only System Prompts**:
-   The Q&A agent's prompt strictly forbids the model from guessing or assuming values. It dictates that values *must* come from the `GetProductAttribute` tool.
+   The Q&A agent's prompt strictly forbids the model from guessing or assuming values. It dictates that values *must* come from the JSON datasheet returned by the `GetProductDatasheet` tool.
 3. **Strict Fallback Abstention**:
-   If the lookup tool returns a missing flag, the prompt dictates returning a literal fallback template: `"Sorry, I can't find that information for '[designation]'. Please try another designation or attribute."`
+   If the lookup tool returns that the datasheet does not exist, or if the attribute is missing from the JSON, the prompt dictates returning the exact fallback template: `Sorry, I can’t find that information for '[designation]'. Please try another designation or attribute.`
 
 ---
 
@@ -120,3 +120,23 @@ To prevent Azure OpenAI from fabricating values ("hallucinating") when queries f
 - **Session Sanitization**: The session ID is trimmed and cleaned to prevent injection vectors, falling back to a securely generated random `Guid` if empty.
 - **Secure Credentials Configuration**: API keys and Azure OpenAI resource endpoints are never stored in source code. They are configured as environment variables (or local settings) and injected via standard .NET Configuration providers.
 - **Least Privilege DI scoping**: Database connections (`IConnectionMultiplexer`) and datasheet caches are singletons, whereas request-specific items (context, agents, plugins) use scoped and transient lifetimes to prevent cross-tenant memory leaks.
+
+---
+
+## 6. Future Paradigms & Architectural Decisions
+
+During the architectural review, two potential paradigm shifts were analyzed and deliberately postponed/rejected in favor of the current in-process orchestration model:
+
+### A. Semantic Kernel Agent Framework Migration
+- **Description**: Migrating the Q&A and Feedback flows to use formal `ChatCompletionAgent` classes from the `Microsoft.SemanticKernel.Agents` package.
+- **Evaluation**: 
+  - *Pros*: Provides standardized agentic abstractions and handoff hooks.
+  - *Cons*: The Agent core SDK is in pre-release/preview with high API volatility.
+  - *Conclusion*: **Declined**. The current custom classification and routing is highly performant, lightweight, and compile-time safe for a simple 2-agent scenario, avoiding unnecessary preview library dependencies.
+
+### B. Model Context Protocol (MCP) Integration
+- **Description**: Moving the plugins (`DatasheetPlugin`, `FeedbackPlugin`) to a separate MCP Server (`ABCCons.McpServer`) and converting the Azure Function into an MCP Client.
+- **Evaluation**:
+  - *Pros*: Decoupled, reusable tool endpoints that can be consumed by any MCP-compliant client.
+  - *Cons*: Introduces process/network latency. Additionally, decoupling makes request-scoped state context sharing (like mapping `SessionContext` variables across separate turns) much more complex as the server cannot natively access the client's HTTP request-scoped DI container.
+  - *Conclusion*: **Declined**. Keeping the plugins compiled in-process allows direct, zero-latency access to the scoped request state store and session context.

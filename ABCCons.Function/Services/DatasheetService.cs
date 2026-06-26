@@ -19,6 +19,9 @@ namespace ABCCons.Function.Services
         public DatasheetService(IConfiguration configuration, ILogger<DatasheetService> logger)
         {
             _productsPath = configuration["ABCProducts:Path"] 
+                            ?? configuration["ABCProducts__Path"]
+                            ?? configuration["Values:ABCProducts:Path"]
+                            ?? configuration["Values:ABCProducts__Path"]
                             ?? "ABCproducts";
             _logger = logger;
         }

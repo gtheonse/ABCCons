@@ -1,4 +1,5 @@
 using System;
+using ABCCons.Function.Middleware;
 using ABCCons.Function.Orchestration;
 using ABCCons.Function.Plugins;
 using ABCCons.Function.Services;
@@ -16,7 +17,11 @@ namespace ABCCons.Function
         public static void Main(string[] args)
         {
             var host = new HostBuilder()
-                .ConfigureFunctionsWebApplication()
+                .ConfigureFunctionsWebApplication(workerApp =>
+                {
+                    // Register rate limiting middleware in the Functions Worker pipeline
+                    workerApp.UseMiddleware<RateLimitingMiddleware>();
+                })
                 .ConfigureAppConfiguration((hostingContext, config) =>
                 {
                     config.AddJsonFile("local.settings.json", optional: true, reloadOnChange: true)
@@ -104,3 +109,4 @@ namespace ABCCons.Function
         }
     }
 }
+
