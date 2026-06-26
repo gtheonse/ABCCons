@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="ABCCons.Function/ABCCons.Function.csproj" />
+  <Project Path="ABCCons.Tests/ABCCons.Tests.csproj" />
+</Solution>

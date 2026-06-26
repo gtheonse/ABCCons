@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "ABCCons.Function": {
+      "commandName": "Project",
+      "launchBrowser": true
+    }
+  }
+}
