@@ -1,5 +1,3 @@
-using System.Threading.Tasks;
-
 namespace ABCCons.Function.Services
 {
     public interface IPromptProvider

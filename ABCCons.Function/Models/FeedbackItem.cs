@@ -1,5 +1,3 @@
-using System;
-
 namespace ABCCons.Function.Models
 {
     public class FeedbackItem

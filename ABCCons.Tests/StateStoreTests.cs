@@ -1,5 +1,3 @@
-using System;
-using System.Threading.Tasks;
 using ABCCons.Function.Models;
 using ABCCons.Function.Services;
 using Xunit;

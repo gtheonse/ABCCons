@@ -1,9 +1,7 @@
-using System;
 using ABCCons.Function.Middleware;
 using ABCCons.Function.Orchestration;
 using ABCCons.Function.Plugins;
 using ABCCons.Function.Services;
-using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -73,16 +71,24 @@ namespace ABCCons.Function
                     // 4. Register Semantic Kernel with Azure OpenAI
                     services.AddTransient<Kernel>(sp =>
                     {
-                        var endpoint = configuration["AzureOpenAI:Endpoint"] 
-                                       ?? string.Empty;
-                        
-                        var apiKey = configuration["AzureOpenAI:ApiKey"] 
-                                     ?? string.Empty;
-                        
-                        var chatDeploymentName = configuration["AzureOpenAI:ChatDeploymentName"] 
-                                                 ?? string.Empty;
-                        var apiVersion = configuration["AzureOpenAI:API_Version"]
-                                                 ?? string.Empty;
+                        var endpoint = configuration["AzureOpenAI:Endpoint"];
+                        var apiKey = configuration["AzureOpenAI:ApiKey"];
+                        var chatDeploymentName = configuration["AzureOpenAI:ChatDeploymentName"];
+                        var apiVersion = configuration["AzureOpenAI:API_Version"];
+
+                        // Validation check for mandatory configurations
+                        if (string.IsNullOrWhiteSpace(endpoint))
+                        {
+                            throw new InvalidOperationException("Configuration error: 'AzureOpenAI:Endpoint' is required but missing or empty.");
+                        }
+                        if (string.IsNullOrWhiteSpace(apiKey))
+                        {
+                            throw new InvalidOperationException("Configuration error: 'AzureOpenAI:ApiKey' is required but missing or empty.");
+                        }
+                        if (string.IsNullOrWhiteSpace(chatDeploymentName))
+                        {
+                            throw new InvalidOperationException("Configuration error: 'AzureOpenAI:ChatDeploymentName' is required but missing or empty.");
+                        }
 
                         var kernelBuilder = Kernel.CreateBuilder();
                         
@@ -91,7 +97,7 @@ namespace ABCCons.Function
                             deploymentName: chatDeploymentName,
                             endpoint: endpoint,
                             apiKey: apiKey,
-                            apiVersion : apiVersion  
+                            apiVersion: string.IsNullOrWhiteSpace(apiVersion) ? null : apiVersion  
                         );
 
                         return kernelBuilder.Build();

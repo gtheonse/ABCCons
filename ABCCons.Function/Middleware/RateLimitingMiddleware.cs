@@ -1,11 +1,10 @@
-using System;
-using System.Net;
-using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Middleware;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System.Net;
+using System.Threading.RateLimiting;
 
 
 namespace ABCCons.Function.Middleware

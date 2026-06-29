@@ -1,9 +1,7 @@
-using System;
-using System.ComponentModel;
-using System.Threading.Tasks;
 using ABCCons.Function.Models;
 using ABCCons.Function.Services;
 using Microsoft.SemanticKernel;
+using System.ComponentModel;
 
 namespace ABCCons.Function.Plugins
 {

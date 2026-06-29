@@ -1,8 +1,6 @@
-using System;
-using System.Text.Json;
-using System.Threading.Tasks;
 using ABCCons.Function.Models;
 using StackExchange.Redis;
+using System.Text.Json;
 
 namespace ABCCons.Function.Services
 {

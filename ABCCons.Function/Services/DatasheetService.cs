@@ -1,10 +1,7 @@
-using System;
-using System.Collections.Concurrent;
-using System.IO;
-using System.Text.Json;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
+using System.Text.Json;
 
 namespace ABCCons.Function.Services
 {

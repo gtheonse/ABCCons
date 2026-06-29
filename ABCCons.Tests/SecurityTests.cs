@@ -1,10 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Net;
-using System.Text;
-using System.Text.Json;
-using System.Threading.Tasks;
 using ABCCons.Function;
 using ABCCons.Function.Models;
 using ABCCons.Function.Orchestration;
@@ -17,6 +10,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
+using System.Text;
+using System.Text.Json;
 using Xunit;
 
 namespace ABCCons.Tests
