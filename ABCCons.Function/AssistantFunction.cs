@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using ABCCons.Function.Models;
 using ABCCons.Function.Orchestration;
@@ -82,12 +83,17 @@ namespace ABCCons.Function
         [OpenApiResponseWithBody(statusCode: HttpStatusCode.BadRequest, contentType: "text/plain", bodyType: typeof(string), Description = "The request body was empty or invalid.")]
         [OpenApiResponseWithBody(statusCode: HttpStatusCode.InternalServerError, contentType: "text/plain", bodyType: typeof(string), Description = "An internal error occurred during processing.")]
         public async Task<IActionResult> Run(
-            [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
+            [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req,
+            CancellationToken cancellationToken = default)
         {
             _logger.LogInformation("Processing Assistant HTTP request (ASP.NET Core Web API style).");
 
             // 1. Read Request Payload
-            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+            string requestBody;
+            using (var reader = new StreamReader(req.Body))
+            {
+                requestBody = await reader.ReadToEndAsync(cancellationToken);
+            }
             
             // Input validation
             if (string.IsNullOrWhiteSpace(requestBody))
@@ -151,7 +157,7 @@ namespace ABCCons.Function
             }
 
             // 3. Retrieve or create State
-            var state = await _stateStore.GetStateAsync(rawSessionId);
+            var state = await _stateStore.GetStateAsync(rawSessionId, cancellationToken);
             if (state == null)
             {
                 state = new ConversationState { SessionId = rawSessionId };
@@ -162,7 +168,7 @@ namespace ABCCons.Function
             string answer;
             try
             {
-                answer = await _orchestrator.ProcessMessageAsync(state, assistantRequest.Message);
+                answer = await _orchestrator.ProcessMessageAsync(state, assistantRequest.Message, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -174,7 +180,7 @@ namespace ABCCons.Function
             }
 
             // 5. Save updated State
-            await _stateStore.SaveStateAsync(state);
+            await _stateStore.SaveStateAsync(state, cancellationToken);
 
             // 6. Build and return Response
             var assistantResponse = new AssistantResponse

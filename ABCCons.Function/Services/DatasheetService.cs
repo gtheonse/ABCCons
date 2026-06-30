@@ -1,7 +1,11 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace ABCCons.Function.Services
 {
@@ -11,7 +15,7 @@ namespace ABCCons.Function.Services
         private readonly ILogger<DatasheetService> _logger;
         private readonly ConcurrentDictionary<string, JsonElement> _productCache = new(StringComparer.OrdinalIgnoreCase);
         private volatile bool _isInitialized = false;
-        private readonly object _lock = new();
+        private readonly SemaphoreSlim _semaphore = new(1, 1);
 
         public DatasheetService(IConfiguration configuration, ILogger<DatasheetService> logger)
         {
@@ -23,71 +27,74 @@ namespace ABCCons.Function.Services
             _logger = logger;
         }
 
-        private void Initialize()
+        private async Task EnsureInitializedAsync(CancellationToken cancellationToken)
         {
             if (_isInitialized) return;
-            lock (_lock)
+            await _semaphore.WaitAsync(cancellationToken);
+            try
             {
                 if (_isInitialized) return;
-                try
+                
+                _logger.LogInformation("Initializing DatasheetService with path: {Path}", _productsPath);
+                if (!Directory.Exists(_productsPath))
                 {
-                    _logger.LogInformation("Initializing DatasheetService with path: {Path}", _productsPath);
-                    if (!Directory.Exists(_productsPath))
-                    {
-                        _logger.LogWarning("Products directory not found: {Path}", _productsPath);
-                        _isInitialized = true;
-                        return;
-                    }
+                    _logger.LogWarning("Products directory not found: {Path}", _productsPath);
+                    _isInitialized = true;
+                    return;
+                }
 
-                    var files = Directory.GetFiles(_productsPath, "*.json");
-                    foreach (var file in files)
+                var files = Directory.GetFiles(_productsPath, "*.json");
+                foreach (var file in files)
+                {
+                    try
                     {
-                        try
+                        var content = await File.ReadAllTextAsync(file, cancellationToken);
+                        using var doc = JsonDocument.Parse(content);
+                        var root = doc.RootElement.Clone();
+                        if (root.TryGetProperty("designation", out var designationProp))
                         {
-                            var content = File.ReadAllText(file);
-                            using var doc = JsonDocument.Parse(content);
-                            var root = doc.RootElement.Clone();
-                            if (root.TryGetProperty("designation", out var designationProp))
+                            var designation = designationProp.GetString();
+                            if (!string.IsNullOrEmpty(designation))
                             {
-                                var designation = designationProp.GetString();
-                                if (!string.IsNullOrEmpty(designation))
-                                {
-                                    _productCache[designation] = root;
-                                    _logger.LogInformation("Loaded product: {Designation} from {File}", designation, Path.GetFileName(file));
-                                }
+                                _productCache[designation] = root;
+                                _logger.LogInformation("Loaded product: {Designation} from {File}", designation, Path.GetFileName(file));
                             }
                         }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Error reading product file {File}", file);
-                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error reading product file {File}", file);
                     }
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error scanning products directory {Path}", _productsPath);
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error scanning products directory {Path}", _productsPath);
+            }
+            finally
+            {
                 _isInitialized = true;
+                _semaphore.Release();
             }
         }
 
-        public Task<bool> ProductExistsAsync(string designation)
+        public async Task<bool> ProductExistsAsync(string designation, CancellationToken cancellationToken = default)
         {
-            Initialize();
-            return Task.FromResult(_productCache.ContainsKey(designation.Trim()));
+            await EnsureInitializedAsync(cancellationToken);
+            return _productCache.ContainsKey(designation.Trim());
         }
 
-        public Task<string?> GetProductDatasheetAsync(string designation)
+        public async Task<string?> GetProductDatasheetAsync(string designation, CancellationToken cancellationToken = default)
         {
-            Initialize();
+            await EnsureInitializedAsync(cancellationToken);
             var normalizedDesignation = designation.Trim();
             if (!_productCache.TryGetValue(normalizedDesignation, out var productJson))
             {
                 _logger.LogWarning("Product '{Designation}' not found in datasheet cache.", normalizedDesignation);
-                return Task.FromResult<string?>(null);
+                return null;
             }
 
-            return Task.FromResult<string?>(productJson.GetRawText());
+            return productJson.GetRawText();
         }
     }
 }

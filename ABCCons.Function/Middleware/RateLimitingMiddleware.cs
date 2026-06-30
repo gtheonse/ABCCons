@@ -42,10 +42,20 @@ namespace ABCCons.Function.Middleware
                 permitLimit, windowSeconds, queueLimit);
         }
 
+        /// <summary>
+        /// Resolves the HttpContext from the FunctionContext. Override in tests
+        /// to provide a mock HttpContext without requiring the full ASP.NET Core
+        /// integration pipeline.
+        /// </summary>
+        protected virtual HttpContext? GetHttpContext(FunctionContext context)
+        {
+            return context.GetHttpContext();
+        }
+
         public async Task Invoke(FunctionContext context, FunctionExecutionDelegate next)
         {
             // Access the underlying ASP.NET Core HttpContext
-            var httpContext = context.GetHttpContext();
+            var httpContext = GetHttpContext(context);
             if (httpContext == null)
             {
                 // Non-HTTP trigger (e.g., timer, queue) — skip rate limiting
