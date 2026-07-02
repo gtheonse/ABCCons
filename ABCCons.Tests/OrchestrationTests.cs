@@ -47,6 +47,14 @@ namespace ABCCons.Tests
                         {
                             await function.InvokeAsync(kernel, new KernelArguments
                             {
+                                ["designation"] = "6205"
+                            });
+                        }
+
+                        if (plugin.TryGetFunction("TrackConversationContext", out var trackFunction))
+                        {
+                            await trackFunction.InvokeAsync(kernel, new KernelArguments
+                            {
                                 ["designation"] = "6205",
                                 ["attributeName"] = "Width"
                             });
