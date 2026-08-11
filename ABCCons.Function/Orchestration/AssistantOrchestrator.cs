@@ -1,3 +1,4 @@
+using ABCCons.Function.Exceptions;
 using ABCCons.Function.Models;
 using ABCCons.Function.Plugins;
 using ABCCons.Function.Services;
@@ -105,33 +106,41 @@ Instructions:
         {
             _sessionContext.State = state;
 
-            // 1. Classify Intent
-            string intent = await ClassifyIntentAsync(message, cancellationToken);
-            _logger.LogInformation("Message classified as: {Intent}", intent);
-
-            string response;
-            if (intent.Equals("Feedback", StringComparison.OrdinalIgnoreCase))
+            try
             {
-                response = await HandleFeedbackAgentAsync(state, message, cancellationToken);
+                // 1. Classify Intent
+                string intent = await ClassifyIntentAsync(message, cancellationToken);
+                _logger.LogInformation("Message classified as: {Intent}", intent);
+
+                string response;
+                if (intent.Equals("Feedback", StringComparison.OrdinalIgnoreCase))
+                {
+                    response = await HandleFeedbackAgentAsync(state, message, cancellationToken);
+                }
+                else
+                {
+                    response = await HandleQaAgentAsync(state, message, cancellationToken);
+                }
+
+                // Update history
+                state.History.Add(new ChatMessageState { Role = "user", Content = message });
+                state.History.Add(new ChatMessageState { Role = "assistant", Content = response });
+
+                // Manage history size to avoid token bloat (cap at 10 messages / 5 turns)
+                if (state.History.Count > 10)
+                {
+                    state.History.RemoveRange(0, state.History.Count - 10);
+                }
+
+                state.LastAnswer = response;
+
+                return response;
             }
-            else
+            catch (Exception ex) when (ContentFilterException.IsContentFilterException(ex))
             {
-                response = await HandleQaAgentAsync(state, message, cancellationToken);
+                _logger.LogWarning(ex, "Message processing interrupted due to content filter policy violation.");
+                return "Your request could not be processed because it triggered content safety policies. Please rephrase your message and try again.";
             }
-
-            // Update history
-            state.History.Add(new ChatMessageState { Role = "user", Content = message });
-            state.History.Add(new ChatMessageState { Role = "assistant", Content = response });
-
-            // Manage history size to avoid token bloat (cap at 10 messages / 5 turns)
-            if (state.History.Count > 10)
-            {
-                state.History.RemoveRange(0, state.History.Count - 10);
-            }
-
-            state.LastAnswer = response;
-
-            return response;
         }
 
         private async Task<string> ClassifyIntentAsync(string message, CancellationToken cancellationToken)
@@ -153,6 +162,12 @@ Instructions:
             }
             catch (Exception ex)
             {
+                if (ContentFilterException.IsContentFilterException(ex))
+                {
+                    _logger.LogWarning(ex, "Content filter triggered during intent classification.");
+                    throw new ContentFilterException("Content filter triggered during intent classification.", ex);
+                }
+
                 _logger.LogError(ex, "Error occurred during intent classification, defaulting to QA.");
                 return "QA";
             }
@@ -195,8 +210,16 @@ Instructions:
 
             var settings = CreateExecutionSettings();
 
-            var chatResponse = await chatCompletion.GetChatMessageContentAsync(chatHistory, settings, qaKernel, cancellationToken);
-            return chatResponse.Content ?? "Sorry, I am unable to process your request.";
+            try
+            {
+                var chatResponse = await chatCompletion.GetChatMessageContentAsync(chatHistory, settings, qaKernel, cancellationToken);
+                return chatResponse.Content ?? "Sorry, I am unable to process your request.";
+            }
+            catch (Exception ex) when (ContentFilterException.IsContentFilterException(ex))
+            {
+                _logger.LogWarning(ex, "Content filter triggered during QA agent response generation.");
+                throw new ContentFilterException("Content filter triggered during QA agent response generation.", ex);
+            }
         }
 
         private async Task<string> HandleFeedbackAgentAsync(ConversationState state, string message, CancellationToken cancellationToken)
@@ -229,8 +252,16 @@ Instructions:
 
             var settings = CreateExecutionSettings();
 
-            var chatResponse = await chatCompletion.GetChatMessageContentAsync(chatHistory, settings, feedbackKernel, cancellationToken);
-            return chatResponse.Content ?? "Thanks, feedback captured.";
+            try
+            {
+                var chatResponse = await chatCompletion.GetChatMessageContentAsync(chatHistory, settings, feedbackKernel, cancellationToken);
+                return chatResponse.Content ?? "Thanks, feedback captured.";
+            }
+            catch (Exception ex) when (ContentFilterException.IsContentFilterException(ex))
+            {
+                _logger.LogWarning(ex, "Content filter triggered during Feedback agent response generation.");
+                throw new ContentFilterException("Content filter triggered during Feedback agent response generation.", ex);
+            }
         }
     }
 }

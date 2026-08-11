@@ -242,5 +242,124 @@ namespace ABCCons.Tests
             Assert.Equal("width", feedbackList[0].Attribute);
             Assert.Equal("The width is wrong", feedbackList[0].Comment);
         }
+
+        private class ContentFilterMockChatCompletion : IChatCompletionService
+        {
+            private readonly bool _failOnFirstCall;
+            private bool _isFirstCall = true;
+
+            public ContentFilterMockChatCompletion(bool failOnFirstCall = true)
+            {
+                _failOnFirstCall = failOnFirstCall;
+            }
+
+            public IReadOnlyDictionary<string, object?> Attributes => new Dictionary<string, object?>();
+
+            public Task<IReadOnlyList<ChatMessageContent>> GetChatMessageContentsAsync(
+                ChatHistory chatHistory,
+                PromptExecutionSettings? executionSettings = null,
+                Kernel? kernel = null,
+                CancellationToken cancellationToken = default)
+            {
+                if (_failOnFirstCall || !_isFirstCall)
+                {
+                    throw new HttpOperationException("HTTP 400 (: content_filter)\nThe response was filtered due to the prompt triggering Azure OpenAI's content management policy.");
+                }
+
+                _isFirstCall = false;
+                return Task.FromResult<IReadOnlyList<ChatMessageContent>>(new List<ChatMessageContent> { new ChatMessageContent(AuthorRole.Assistant, "QA") });
+            }
+
+            public IAsyncEnumerable<StreamingChatMessageContent> GetStreamingChatMessageContentsAsync(
+                ChatHistory chatHistory,
+                PromptExecutionSettings? executionSettings = null,
+                Kernel? kernel = null,
+                CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+        }
+
+        [Fact]
+        public async Task ProcessMessageAsync_ShouldHandleContentFilterGracefully_DuringIntentClassification()
+        {
+            // Arrange
+            var mockChat = new ContentFilterMockChatCompletion(failOnFirstCall: true);
+            var kernelBuilder = Kernel.CreateBuilder();
+            kernelBuilder.Services.AddSingleton<IChatCompletionService>(mockChat);
+            var kernel = kernelBuilder.Build();
+
+            var datasheetService = new DatasheetService(
+                new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    { "ABCProducts__Path", "../../../../ABCproducts" }
+                }).Build(),
+                NullLogger<DatasheetService>.Instance
+            );
+
+            var sessionContext = new SessionContext();
+            var feedbackRepo = new InMemoryFeedbackRepository();
+
+            var datasheetPlugin = new DatasheetPlugin(datasheetService, sessionContext);
+            var feedbackPlugin = new FeedbackPlugin(feedbackRepo, sessionContext);
+
+            var orchestrator = new AssistantOrchestrator(
+                kernel,
+                datasheetPlugin,
+                feedbackPlugin,
+                sessionContext,
+                NullLogger<AssistantOrchestrator>.Instance
+            );
+
+            var state = new ConversationState { SessionId = "session-test" };
+
+            // Act
+            var response = await orchestrator.ProcessMessageAsync(state, "Flagged content prompt");
+
+            // Assert
+            Assert.Contains("triggered content safety policies", response);
+            Assert.Empty(state.History); // History should NOT be updated with flagged content
+        }
+
+        [Fact]
+        public async Task ProcessMessageAsync_ShouldHandleContentFilterGracefully_DuringAgentExecution()
+        {
+            // Arrange
+            var mockChat = new ContentFilterMockChatCompletion(failOnFirstCall: false);
+            var kernelBuilder = Kernel.CreateBuilder();
+            kernelBuilder.Services.AddSingleton<IChatCompletionService>(mockChat);
+            var kernel = kernelBuilder.Build();
+
+            var datasheetService = new DatasheetService(
+                new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    { "ABCProducts__Path", "../../../../ABCproducts" }
+                }).Build(),
+                NullLogger<DatasheetService>.Instance
+            );
+
+            var sessionContext = new SessionContext();
+            var feedbackRepo = new InMemoryFeedbackRepository();
+
+            var datasheetPlugin = new DatasheetPlugin(datasheetService, sessionContext);
+            var feedbackPlugin = new FeedbackPlugin(feedbackRepo, sessionContext);
+
+            var orchestrator = new AssistantOrchestrator(
+                kernel,
+                datasheetPlugin,
+                feedbackPlugin,
+                sessionContext,
+                NullLogger<AssistantOrchestrator>.Instance
+            );
+
+            var state = new ConversationState { SessionId = "session-test" };
+
+            // Act
+            var response = await orchestrator.ProcessMessageAsync(state, "What is the width of 6205?");
+
+            // Assert
+            Assert.Contains("triggered content safety policies", response);
+            Assert.Empty(state.History); // History should NOT be updated with flagged content
+        }
     }
 }
