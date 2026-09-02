@@ -4,6 +4,7 @@ using System.Net;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using ABCCons.Function.Exceptions;
 using ABCCons.Function.Models;
 using ABCCons.Function.Orchestration;
 using ABCCons.Function.Services;
@@ -169,6 +170,15 @@ namespace ABCCons.Function
             try
             {
                 answer = await _orchestrator.ProcessMessageAsync(state, assistantRequest.Message, cancellationToken);
+            }
+            catch (Exception ex) when (ContentFilterException.IsContentFilterException(ex))
+            {
+                _logger.LogWarning(ex, "Content filter triggered for session {SessionId}", rawSessionId);
+                return new OkObjectResult(new AssistantResponse
+                {
+                    SessionId = sessionId,
+                    Response = "Your request could not be processed because it triggered content safety policies. Please rephrase your message and try again."
+                });
             }
             catch (Exception ex)
             {

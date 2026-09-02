@@ -230,5 +230,83 @@ namespace ABCCons.Tests
             var badRequestResult = Assert.IsType<BadRequestObjectResult>(result);
             Assert.Contains("Invalid session ID or signature", badRequestResult.Value?.ToString());
         }
+
+        private class ContentFilterMockChat : IChatCompletionService
+        {
+            public IReadOnlyDictionary<string, object?> Attributes => new Dictionary<string, object?>();
+
+            public Task<IReadOnlyList<ChatMessageContent>> GetChatMessageContentsAsync(
+                ChatHistory chatHistory,
+                PromptExecutionSettings? executionSettings = null,
+                Kernel? kernel = null,
+                CancellationToken cancellationToken = default)
+            {
+                throw new HttpOperationException("HTTP 400 (: content_filter)\nThe response was filtered due to the prompt triggering Azure OpenAI's content management policy.");
+            }
+
+            public IAsyncEnumerable<StreamingChatMessageContent> GetStreamingChatMessageContentsAsync(
+                ChatHistory chatHistory,
+                PromptExecutionSettings? executionSettings = null,
+                Kernel? kernel = null,
+                CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+        }
+
+        [Fact]
+        public async Task Run_ShouldReturnSafetyResponse_WhenContentFilterIsTriggered()
+        {
+            // Arrange
+            var inMemorySettings = new Dictionary<string, string?>
+            {
+                { "ABCProducts__Path", "../../../../ABCproducts" },
+                { "Session:SigningKey", "TestSigningKey12345!" }
+            };
+
+            IConfiguration configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(inMemorySettings)
+                .Build();
+
+            var mockChat = new ContentFilterMockChat();
+            var kernelBuilder = Kernel.CreateBuilder();
+            kernelBuilder.Services.AddSingleton<IChatCompletionService>(mockChat);
+            var kernel = kernelBuilder.Build();
+
+            var datasheetService = new DatasheetService(configuration, NullLogger<DatasheetService>.Instance);
+            var sessionContext = new SessionContext();
+            var feedbackRepo = new InMemoryFeedbackRepository();
+
+            var datasheetPlugin = new DatasheetPlugin(datasheetService, sessionContext);
+            var feedbackPlugin = new FeedbackPlugin(feedbackRepo, sessionContext);
+
+            var orchestrator = new AssistantOrchestrator(
+                kernel,
+                datasheetPlugin,
+                feedbackPlugin,
+                sessionContext,
+                NullLogger<AssistantOrchestrator>.Instance
+            );
+
+            var stateStore = new InMemoryStateStore();
+
+            var function = new AssistantFunction(
+                orchestrator,
+                stateStore,
+                configuration,
+                NullLogger<AssistantFunction>.Instance
+            );
+
+            var payload = new AssistantRequest { Message = "Unsafe content trigger message" };
+            var request = CreateMockRequest(payload);
+
+            // Act
+            var result = await function.Run(request);
+
+            // Assert
+            var okResult = Assert.IsType<OkObjectResult>(result);
+            var response = Assert.IsType<AssistantResponse>(okResult.Value);
+            Assert.Contains("triggered content safety policies", response.Response);
+        }
     }
 }
